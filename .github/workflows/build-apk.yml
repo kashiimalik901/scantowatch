@@ -49,19 +49,39 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Build release APK
-        run: flutter build apk --release
+      # --split-per-abi produces one APK per CPU architecture instead of a "fat"
+      # APK carrying all three. The fat APK bundles armeabi-v7a + arm64-v8a +
+      # x86_64 copies of the Flutter engine AND the ARCore native libs, which is
+      # where most of the size goes. Virtually every phone since ~2019 is arm64.
+      - name: Build release APKs
+        run: flutter build apk --release --split-per-abi
 
-      - name: Rename APK
+      # The Play Store wants an AAB and delivers only the slice each device
+      # needs, so the user's actual download is smaller again.
+      - name: Build app bundle
+        run: flutter build appbundle --release
+
+      - name: Collect outputs and report sizes
         run: |
           mkdir -p out
-          cp build/app/outputs/flutter-apk/app-release.apk out/scantowatch.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk out/scantowatch-arm64.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk out/scantowatch-arm32.apk
+          cp build/app/outputs/bundle/release/app-release.aab out/scantowatch.aab
+
+          echo "### Build sizes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Output | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          for f in out/*; do
+            echo "| $(basename $f) | $(du -h $f | cut -f1) |" >> $GITHUB_STEP_SUMMARY
+          done
+          cat $GITHUB_STEP_SUMMARY
           ls -lh out/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: scantowatch-apk
-          path: out/scantowatch.apk
+          name: scantowatch-builds
+          path: out/
           retention-days: 30
 
       # Direct download link for installing on the phone.
@@ -73,10 +93,16 @@ jobs:
           body: |
             Automatic build of the ScanToWatch ARCore demo.
 
-            **Install:** download `scantowatch.apk` on an ARCore-capable Android
-            phone and open it. You will need to allow installing from unknown
-            sources.
+            **Install `scantowatch-arm64.apk`** — this is the one you want for
+            any phone from roughly 2019 onward. Use `scantowatch-arm32.apk` only
+            if arm64 refuses to install on an older device.
+
+            `scantowatch.aab` is for uploading to the Play Store, not for direct
+            installation.
 
             Commit: ${{ github.sha }}
-          files: out/scantowatch.apk
+          files: |
+            out/scantowatch-arm64.apk
+            out/scantowatch-arm32.apk
+            out/scantowatch.aab
           prerelease: true
