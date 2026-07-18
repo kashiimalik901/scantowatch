@@ -44,8 +44,10 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Analyze (non-blocking)
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
+      # Fails on errors only, not lints. Catches Dart mistakes in ~20s instead of
+      # waiting ~2min for Gradle to reach the kernel-snapshot step and fail there.
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Build release APK
         run: flutter build apk --release

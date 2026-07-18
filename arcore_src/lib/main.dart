@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';  // Factory
+import 'package:flutter/gestures.dart';    // OneSequenceGestureRecognizer
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';   // PlatformViewHitTestBehavior
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
