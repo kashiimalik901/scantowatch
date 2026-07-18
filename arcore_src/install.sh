@@ -50,6 +50,13 @@ cp "$SRC/lib/main.dart" "$ROOT/lib/main.dart"
 cp "$SRC/pubspec.yaml" "$ROOT/pubspec.yaml"
 echo "  + lib/main.dart + pubspec.yaml"
 
+# flutter create generates test/widget_test.dart referencing MyApp, which does
+# not exist once our main.dart replaces the template. It would fail analysis.
+if [ -f "$ROOT/test/widget_test.dart" ]; then
+  rm -f "$ROOT/test/widget_test.dart"
+  echo "  - removed stale scaffold test"
+fi
+
 # --------------------------------------------------------------------- manifest
 echo "AndroidManifest.xml"
 MANIFEST="$ROOT/android/app/src/main/AndroidManifest.xml"

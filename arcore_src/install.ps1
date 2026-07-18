@@ -59,6 +59,13 @@ Copy-Item "$src/lib/main.dart" "$root/lib/main.dart" -Force
 Copy-Item "$src/pubspec.yaml" "$root/pubspec.yaml" -Force
 Ok "lib/main.dart + pubspec.yaml"
 
+# flutter create generates test/widget_test.dart referencing MyApp, which does
+# not exist once our main.dart replaces the template. It would fail analysis.
+if (Test-Path "$root/test/widget_test.dart") {
+  Remove-Item "$root/test/widget_test.dart" -Force
+  Info "removed stale scaffold test"
+}
+
 # -------------------------------------------------------------------- manifest
 Write-Host "AndroidManifest.xml"
 $manifestPath = "$root/android/app/src/main/AndroidManifest.xml"
