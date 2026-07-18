@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>ScanToWatch — AR Demo</title>
+
+  <!-- Vendored locally so this works offline and drops straight into the Flutter app -->
+  <script src="vendor/aframe.min.js"></script>
+  <script src="vendor/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; width: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* MindAR injects the camera feed as a bare <video> child of <body> and gives
+       it a NEGATIVE z-index. Any background colour on html/body therefore paints
+       straight over it — the symptom is a black screen with a working HUD.
+       So: no background on body, and the feed is pinned explicitly below the
+       A-Frame canvas (which renders transparent) but above everything else. */
+    body > video {
+      position: fixed !important;
+      top: 0 !important; left: 0 !important;
+      width: 100vw !important; height: 100vh !important;
+      object-fit: cover !important;
+      z-index: 0 !important;
+      display: block !important;
+    }
+    a-scene, .a-canvas { position: relative; z-index: 1; background: transparent !important; }
+    a-scene { width: 100vw; height: 100vh; }
+
+    /* ---------- Start gate ----------
+       Browsers require a user gesture before granting camera access AND
+       before a video with sound may play. One tap satisfies both. */
+    #gate {
+      position: fixed; inset: 0; z-index: 30;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 28px;
+      background: radial-gradient(circle at 50% 35%, #1c2536 0%, #0a0d14 70%);
+      color: #fff; text-align: center; padding: 32px;
+    }
+    #gate h1 { margin: 0; font-size: 27px; font-weight: 650; letter-spacing: -0.02em; }
+    #gate p  { margin: 0; font-size: 15px; line-height: 1.55; color: #9aa7bd; max-width: 330px; }
+    #startBtn {
+      appearance: none; border: 0; cursor: pointer;
+      padding: 17px 46px; border-radius: 999px;
+      font-size: 17px; font-weight: 650; color: #08111f;
+      background: linear-gradient(180deg, #7fe7c4 0%, #34d0a1 100%);
+      box-shadow: 0 8px 28px rgba(52, 208, 161, 0.35);
+      transition: opacity 0.2s ease;
+    }
+    #startBtn:disabled { opacity: 0.45; }
+    #startBtn:active:not(:disabled) { transform: translateY(1px); }
+    #gate img {
+      width: 168px; border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+      border: 3px solid rgba(255,255,255,0.14);
+    }
+    .hint { font-size: 12.5px; color: #64748b; letter-spacing: 0.02em; }
+
+    /* ---------- In-AR HUD ---------- */
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+      display: none; justify-content: center;
+      padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 0;
+    }
+    #status {
+      background: rgba(8, 13, 22, 0.72);
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      color: #fff; font-size: 13.5px; font-weight: 550;
+      padding: 9px 18px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.1);
+      display: flex; align-items: center; gap: 9px; cursor: pointer;
+    }
+    #status .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #f5b544; flex: none;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    #status.found .dot { background: #34d0a1; animation: none; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+    #soundBtn {
+      position: fixed; z-index: 20; display: none;
+      right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+      width: 54px; height: 54px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(8, 13, 22, 0.72);
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      color: #fff; font-size: 21px; cursor: pointer; line-height: 1;
+    }
+    #soundBtn:active { transform: scale(0.94); }
+
+    #ref {
+      position: fixed; z-index: 20; display: none;
+      left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+      width: 74px; border-radius: 8px; opacity: 0.82;
+      border: 2px solid rgba(255,255,255,0.28);
+    }
+
+    /* ---------- Tracking tuner ---------- */
+    #tuner {
+      position: fixed; z-index: 26; display: none;
+      left: 12px; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 62px);
+      padding: 16px; border-radius: 14px;
+      background: rgba(8,13,22,0.93);
+      -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,0.12); color: #fff;
+    }
+    #tuner h3 { margin: 0 0 4px; font-size: 14px; font-weight: 650; }
+    #tuner .sub { margin: 0 0 14px; font-size: 11.5px; color: #8092ad; line-height: 1.5; }
+    .preset {
+      display: block; width: 100%; text-align: left; cursor: pointer;
+      margin-bottom: 8px; padding: 11px 14px; border-radius: 10px;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+      color: #fff; font-size: 13px; font-weight: 600;
+    }
+    .preset.active { background: rgba(52,208,161,0.16); border-color: #34d0a1; }
+    .preset small { display: block; font-weight: 400; font-size: 11px; color: #8092ad; margin-top: 3px; }
+    #tunerClose {
+      width: 100%; margin-top: 6px; padding: 10px; cursor: pointer;
+      border-radius: 10px; border: 0; background: rgba(255,255,255,0.1);
+      color: #9aa7bd; font-size: 12.5px;
+    }
+
+    #diag {
+      position: fixed; z-index: 25; display: none;
+      left: 10px; right: 10px; top: calc(env(safe-area-inset-top, 0px) + 62px);
+      margin: 0; padding: 12px 14px; border-radius: 10px;
+      background: rgba(8,13,22,0.9); color: #7fe7c4;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: 11px; line-height: 1.55; white-space: pre-wrap;
+      border: 1px solid rgba(127,231,196,0.3);
+    }
+
+    #err {
+      position: fixed; inset: 0; z-index: 40; display: none;
+      align-items: center; justify-content: center; padding: 34px;
+      background: #0a0d14; color: #ff8080; text-align: center;
+      font-size: 14.5px; line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="gate">
+    <img src="assets/marker.png" alt="Marker image to point the camera at" />
+    <div>
+      <h1>ScanToWatch</h1>
+      <p style="margin-top:10px">
+        Point your camera at the image above and the video plays right on top of it.
+      </p>
+    </div>
+    <button id="startBtn" disabled>Loading…</button>
+    <div class="hint">Tap the status pill later to tune tracking</div>
+  </div>
+
+  <div id="hud">
+    <div id="status"><span class="dot"></span><span id="statusText">Looking for image…</span></div>
+  </div>
+  <button id="soundBtn" aria-label="Toggle sound">🔇</button>
+  <img id="ref" src="assets/marker.png" alt="" />
+
+  <div id="tuner">
+    <h3>Tracking feel</h3>
+    <p class="sub">Trade-off between jitter and lag. Reloads the page — you'll tap Start again.</p>
+    <button class="preset" data-mincf="0.0005" data-beta="100">Sticky
+      <small>Smoothest. Video glues to the image but trails on fast movement.</small></button>
+    <button class="preset" data-mincf="0.001" data-beta="1000">Balanced
+      <small>MindAR default. Best starting point.</small></button>
+    <button class="preset" data-mincf="0.01" data-beta="10000">Snappy
+      <small>Follows movement instantly, but visibly jitters when still.</small></button>
+    <button id="tunerClose">Close</button>
+  </div>
+
+  <div id="diag"></div>
+  <div id="err"><div id="errText"></div></div>
+
+  <!-- The scene is injected by JS so the filter settings can be read from the URL
+       before A-Frame initialises the component. MindAR reads these at init time,
+       so they cannot be changed afterwards without rebuilding the scene. -->
+  <div id="sceneHost"></div>
+
+  <script>
+    // ---------- Settings ----------
+    const params  = new URLSearchParams(location.search);
+    const MIN_CF  = parseFloat(params.get('minCF')) || 0.001;   // MindAR defaults
+    const BETA    = parseFloat(params.get('beta'))  || 1000;
+
+    // Marker is 674x372 -> 0.5519. The video plane must match this ratio or the
+    // video will not sit exactly on the image.
+    const MARKER_RATIO = 0.5519;
+
+    function fail(msg) {
+      document.querySelector('#errText').innerHTML = msg;
+      document.querySelector('#err').style.display = 'flex';
+      document.querySelector('#gate').style.display = 'none';
+    }
+
+    // getUserMedia only exists on a secure origin (https:// or localhost).
+    // Over plain http:// from a phone it is simply undefined.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      fail('<b>Camera unavailable on this connection.</b><br><br>' +
+           'Browsers only allow camera access over <b>https://</b> or on ' +
+           '<b>localhost</b>.<br><br>You are on <code>' +
+           location.protocol + '//' + location.host + '</code>.<br><br>' +
+           'Use an HTTPS tunnel (see README) and reopen the link.');
+    }
+
+    // ---------- Build the scene ----------
+    document.querySelector('#sceneHost').innerHTML = `
+      <a-scene
+        mindar-image="imageTargetSrc: assets/targets.mind; autoStart: false;
+                      uiScanning: no; uiLoading: no; uiError: no;
+                      filterMinCF: ${MIN_CF}; filterBeta: ${BETA};
+                      missTolerance: 5; warmupTolerance: 5"
+        color-space="sRGB"
+        renderer="colorManagement: true, physicallyCorrectLights"
+        vr-mode-ui="enabled: false"
+        device-orientation-permission-ui="enabled: false">
+
+        <a-assets>
+          <!-- muted + playsinline are REQUIRED for mobile autoplay to be allowed -->
+          <video id="clip" src="assets/demo.mp4"
+                 preload="auto" loop muted playsinline webkit-playsinline
+                 crossorigin="anonymous"></video>
+        </a-assets>
+
+        <a-camera position="0 0 0" look-controls="enabled: false" cursor="fuse: false"></a-camera>
+
+        <a-entity id="target" mindar-image-target="targetIndex: 0">
+          <a-video src="#clip" width="1" height="${MARKER_RATIO}" position="0 0 0.001"></a-video>
+        </a-entity>
+      </a-scene>`;
+
+    const sceneEl   = document.querySelector('a-scene');
+    const targetEl  = document.querySelector('#target');
+    const video     = document.querySelector('#clip');
+    const gate      = document.querySelector('#gate');
+    const startBtn  = document.querySelector('#startBtn');
+    const hud       = document.querySelector('#hud');
+    const statusEl  = document.querySelector('#status');
+    const statusTxt = document.querySelector('#statusText');
+    const soundBtn  = document.querySelector('#soundBtn');
+    const refImg    = document.querySelector('#ref');
+    const tuner     = document.querySelector('#tuner');
+
+    function ready() {
+      startBtn.disabled = false;
+      startBtn.textContent = 'Start Camera';
+    }
+    if (sceneEl.hasLoaded) ready(); else sceneEl.addEventListener('loaded', ready);
+
+    // ---------- Start ----------
+    startBtn.addEventListener('click', async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = 'Starting…';
+
+      // Prime the video inside the gesture handler. Mobile browsers only honour
+      // .play() when it originates from a user gesture, so we start it here and
+      // immediately pause — play/pause then work freely on target events.
+      try {
+        await video.play();
+        video.pause();
+        video.currentTime = 0;
+      } catch (e) {
+        console.warn('Video priming failed (non-fatal):', e);
+      }
+
+      try {
+        await sceneEl.systems['mindar-image-system'].start();
+      } catch (e) {
+        fail('<b>Could not start the camera.</b><br><br>' +
+             'Check camera permission was allowed, then reload.<br><br>' +
+             '<code>' + (e && e.message ? e.message : e) + '</code>');
+        return;
+      }
+
+      gate.style.display = 'none';
+      hud.style.display = 'flex';
+      soundBtn.style.display = 'block';
+      refImg.style.display = 'block';
+
+      // start() resolving does NOT guarantee the feed is visible: the stream can
+      // attach fine and still be painted over, or attach with zero dimensions.
+      setTimeout(() => {
+        const feed = document.querySelector('body > video');
+        const lines = [];
+        if (!feed) {
+          lines.push('✗ No camera <video> element was injected.');
+        } else {
+          const track = feed.srcObject && feed.srcObject.getVideoTracks
+            ? feed.srcObject.getVideoTracks()[0] : null;
+          lines.push((feed.srcObject ? '✓' : '✗') + ' stream attached');
+          lines.push(track ? '✓ track: ' + track.label + ' [' + track.readyState + ']'
+                           : '✗ no video track');
+          lines.push('feed size: ' + feed.videoWidth + '×' + feed.videoHeight);
+          lines.push('paused: ' + feed.paused);
+          const cs = getComputedStyle(feed);
+          lines.push('z-index: ' + cs.zIndex + '  display: ' + cs.display);
+        }
+        lines.push('filterMinCF: ' + MIN_CF + '  filterBeta: ' + BETA);
+        const msg = lines.join('\n');
+        console.log('[ScanToWatch diagnostic]\n' + msg);
+
+        const broken = !feed || !feed.srcObject || feed.videoWidth === 0 || feed.paused;
+        if (broken || params.has('debug')) {
+          const box = document.querySelector('#diag');
+          box.textContent = msg;
+          box.style.display = 'block';
+        }
+      }, 1500);
+    });
+
+    // ---------- Tracking events ----------
+    targetEl.addEventListener('targetFound', () => {
+      statusEl.classList.add('found');
+      statusTxt.textContent = 'Playing';
+      video.play().catch(err => console.warn('play() rejected:', err));
+    });
+
+    targetEl.addEventListener('targetLost', () => {
+      statusEl.classList.remove('found');
+      statusTxt.textContent = 'Looking for image…';
+      video.pause();
+    });
+
+    soundBtn.addEventListener('click', () => {
+      video.muted = !video.muted;
+      soundBtn.textContent = video.muted ? '🔇' : '🔊';
+    });
+
+    // ---------- Tuner ----------
+    statusEl.addEventListener('click', () => {
+      tuner.style.display = tuner.style.display === 'block' ? 'none' : 'block';
+    });
+    document.querySelector('#tunerClose').addEventListener('click', () => {
+      tuner.style.display = 'none';
+    });
+    document.querySelectorAll('.preset').forEach(btn => {
+      if (parseFloat(btn.dataset.mincf) === MIN_CF && parseFloat(btn.dataset.beta) === BETA) {
+        btn.classList.add('active');
+      }
+      btn.addEventListener('click', () => {
+        location.search = '?minCF=' + btn.dataset.mincf + '&beta=' + btn.dataset.beta;
+      });
+    });
+  </script>
+</body>
+</html>

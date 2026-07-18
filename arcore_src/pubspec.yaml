@@ -1,0 +1,24 @@
+name: scantowatch
+description: ARCore image-tracking AR demo — point the camera at a marker image
+  and a video plays locked onto it.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  permission_handler: ^12.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  # The marker image and video are NOT Flutter assets — they live in
+  # android/app/src/main/assets/ because ARCore and ExoPlayer read them
+  # natively, not through Flutter's asset bundle.
